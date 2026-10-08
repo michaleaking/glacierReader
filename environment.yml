@@ -1,0 +1,39 @@
+name: default
+channels:
+- conda-forge
+- nodefaults
+dependencies:
+- python 3.12.*
+- numpy *
+- pandas *
+- scipy *
+- xarray *
+- rioxarray *
+- rasterio *
+- pyproj *
+- gdal >=3.12,<3.13
+- geopandas *
+- netcdf4 *
+- h5netcdf *
+- dask *
+- matplotlib-base *
+- holoviews *
+- hvplot *
+- panel *
+- param *
+- bokeh *
+- requests *
+- pyyaml *
+- jupyterlab *
+- ipykernel *
+- ipywidgets *
+- jupyter-panel-proxy *
+- papermill *
+- stackstac >=0.5.0,<0.6
+- pystac >=1.15.2,<2
+- rio-stac >=0.12.0,<0.13
+- ipympl >=0.10.0,<0.11
+- pip
+- pip:
+  - grimpfunc @ git+https://github.com/fastice/grimpfunc.git@master
+  - nisardev @ git+https://github.com/fastice/nisardev.git@main

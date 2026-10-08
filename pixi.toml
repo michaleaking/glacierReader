@@ -1,0 +1,59 @@
+[workspace]
+authors = ["Michalea King <michaleaking@gmail.com>"]
+channels = ["conda-forge"]
+name = "glacierReader"
+platforms = ["osx-arm64"]
+version = "0.1.0"
+
+[tasks]
+sync-env = "pixi workspace export conda-environment environment.yml"
+lab = "jupyter lab"
+
+[dependencies]
+python = "3.12.*"
+
+# Arrays, geospatial I/O and projections
+numpy = "*"
+pandas = "*"
+scipy = "*"
+xarray = "*"
+rioxarray = "*"
+rasterio = "*"
+pyproj = "*"
+# gdal/rasterio: 3.12.x + rasterio 1.5.0 is the pairing verified against NSIDC
+# here. Concurrent /vsicurl reads segfaulted on 3.13.3; lift the bound only after
+# re-running a real download.
+gdal = ">=3.12,<3.13"          # nisardev imports osgeo.gdal
+geopandas = "*"     # grimpfunc.Flowlines
+netcdf4 = "*"       # xarray.to_netcdf engine
+h5netcdf = "*"
+dask = "*"
+
+# Plotting, and the panel widgets behind the NSIDC login / box picker
+matplotlib-base = "*"
+holoviews = "*"
+hvplot = "*"
+panel = "*"
+param = "*"
+bokeh = "*"
+
+# Catalog search and box files
+requests = "*"
+pyyaml = "*"
+
+# Notebook environment
+jupyterlab = "*"
+ipykernel = "*"
+ipywidgets = "*"
+jupyter-panel-proxy = "*"
+papermill = "*"     # the notebook's `parameters` cell is papermill-taggable
+
+# Required by grimpfunc master (GrIMPSubsetter), not used directly by the notebook
+stackstac = ">=0.5.0,<0.6"
+pystac = ">=1.15.2,<2"
+rio-stac = ">=0.12.0,<0.13"
+ipympl = ">=0.10.0,<0.11"
+
+[pypi-dependencies]
+grimpfunc = { git = "https://github.com/fastice/grimpfunc.git", rev = "master" }
+nisardev = { git = "https://github.com/fastice/nisardev.git", rev = "main" }
