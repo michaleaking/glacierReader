@@ -41,6 +41,122 @@ pixi run sync-env     # refresh environment.yml for conda users after `pixi add`
 Downloads need [Earthdata](https://urs.earthdata.nasa.gov) credentials. `gr.login()` sets the
 GDAL cookie jar and returns the login widget; log in once and the cookie is reused.
 
+## Getting started
+
+Four examples, in the order worth doing them: prove the install works offline, then download a
+glacier you already know, then find one you don't, then hand the result to the comparison
+tools. Each step says what you should see, so a wrong answer tells you where it broke.
+
+### 1. Check the install without downloading anything
+
+No network, no Earthdata account, nothing written. Start here — it separates "my environment is
+wrong" from "NSIDC is unhappy".
+
+- **Run the test suite.** `pixi run python test_roi_naming.py`
+  → 19 `[PASS]` lines, ending `ALL ROI NAMING CHECKS PASSED`. This exercises the ROI geometry,
+  the glacier lookup and all four prompt paths against synthetic gates.
+- **Open a Python session.** `pixi run python`
+- **Import and check the heavy dependencies resolved.**
+  ```python
+  import glacier_reader as gr          # pulls in grimpfunc, nisardev, gdal
+  ```
+  → no output. An `ImportError` here is an environment problem, not a usage problem; re-run
+  `pixi install`.
+- **Load the glacier names.** `gates = gr.load_glacier_gates(); len(gates)`
+  → `234`. A warning and `0` instead means the King 2020 gate file is not where it is expected
+  — set `GLACIER_GATES_FILE` (see [Local data](#when-you-dont-know-the-roi)).
+- **Build an ROI and name it, with no catalog involved.**
+  ```python
+  bbox = gr.roi_bbox((-183000.0, -2274200.0), 10000.0)
+  gr.describe_bbox(bbox)
+  gr.suggest_glacier_name(bbox)[0]
+  ```
+  → `'20.0 x 20.0 km  |  lon -49.872 to -49.331, lat 69.065 to 69.258'` and `'jakobshavn'`.
+- **Draw the coastline.** `len(gr.greenland_outline())`
+  → `742` segments. First call reads BedMachine (~1 s) and caches it; later calls are instant.
+  `0` with a warning means `BEDMACHINE_FILE` is not set.
+
+### 2. Download a glacier you already know
+
+- **Log in once.** In a notebook, `display(gr.login())` and complete the Earthdata form. In a
+  script, make sure `~/.grimp_download_cookiejar.txt` exists from a previous login.
+- **Look before you fetch.** Ask what the catalog actually has for your ROI and window:
+  ```python
+  bbox = gr.roi_bbox((-183000.0, -2274200.0), 6000.0)      # 12 x 12 km
+  gr.summarize_search(bbox, '2018-01-01', '2019-12-31', ['NSIDC-0725', 'NSIDC-0731'])
+  ```
+  → a table: 3 granules for the annual mosaic, 24 for the monthly. **Zero rows for everything
+  is the signal to stop and debug** — usually the date window or the ROI, not the download.
+- **Download, with the no-data check on.**
+  ```python
+  out = gr.glacier_velocity_workflow(
+      center=(-183000.0, -2274200.0), dx_m=6000.0,
+      first_date='2018-01-01', last_date='2019-12-31',
+      products=['NSIDC-0725'], out_dir='Subsets', prefix='jakobshavn',
+  )
+  ```
+  → a progress bar, then `wrote Subsets/jakobshavn_NSIDC-0725.nc (0.2 MB)`. A 12 km annual ROI
+  is seconds; a decade of monthly mosaics is minutes.
+- **Confirm the no-data convention held.** `out['report']['n_sentinel_left'].sum()`
+  → `0`. Anything else means a sentinel survived the write — treat the file as suspect.
+- **Sanity-check the numbers, not just the absence of errors.**
+  ```python
+  ts, ax = gr.plot_glacier_velocity(out['files'], -183000.0, -2274200.0,
+                                    method='nearest', name='Jakobshavn')
+  ts[['time', 'vv', 'vx', 'vy']]
+  ```
+  → `vv` around 10,000 m/yr at this point — the Jakobshavn trunk is one of the fastest places
+  on the ice sheet — with `vx` strongly negative and `vy` positive, i.e. flowing west-northwest
+  down the fjord. Speeds in the tens, or NaN throughout, mean the point missed the fast ice:
+  check the coordinates before blaming the data. Note that rows where every band is NaN are
+  dropped, so the table can be shorter than the number of time steps in the file.
+- **Re-run the same call.** → `already exists, skipping (overwrite=True to redo)`. Re-running is
+  cheap by design; pass `overwrite=True` to force a refetch.
+
+### 3. Find a glacier you don't know
+
+- **Turn on an interactive backend.** `%matplotlib widget` in a notebook; in a script any GUI
+  backend works and `macosx` is already the default here.
+- **Open the map.** `sel = gr.select_roi_interactive()`
+  → Greenland in log-scaled speed over the coastline, 234 gates in red. First call spends ~5 s
+  reading the decimated mosaic from NSIDC, then caches it.
+- **Drag a box** over somewhere fast. The readout updates live with the size, centre, `dx`/`dy`
+  and the glacier covered. Drag again to redo it — only the last box counts.
+- **Read back what you selected.** `sel.center, sel.dx_m, sel.dy_m, sel.name`
+  → e.g. `((-183000.0, -2274200.0), 10000.0, 10000.0, 'jakobshavn')`.
+  `RuntimeError` here means no box was dragged — usually a non-interactive backend.
+- **See the runners-up** if the suggestion looks wrong. `sel.matches`
+  → the ranked table, with what fraction of each gate is inside the ROI and how far outside the
+  near-misses are.
+- **Confirm the name, then download.** `out = sel.download(first_date='2018-01-01', products=['NSIDC-0725'])`
+  → the prompt appears; press Enter to accept `jakobshavn`, or type your own name. Files are
+  named from whatever you accept.
+
+### 4. Hand the result to ModelObsCompare
+
+- **Read the file through the adapter**, not `moc_py.load_obs_netcdf` — the band orders differ:
+  ```python
+  from moc_py.obs_nsidc import load_nsidc_netcdf, bbox_to_roi
+  O = load_nsidc_netcdf(out['files'][0], bands=['vv'])
+  dict(O.sizes)
+  ```
+  → e.g. `{'x': 61, 'y': 61, 'time': 3}`, with `time` in decimal years and `O.attrs['epsg']`
+  of `3413`.
+- **Turn the ROI into a moc ROI.** `roi = bbox_to_roi(out['bbox'], name=out['prefix'])`
+  → saved as `<roi_dir>/<name>.json` plus an ISSM `.exp` contour for the MATLAB side.
+- **Check it against the observations alone first**, before involving a model:
+  ```python
+  import moc_py as mp
+  V = mp.velocity_variance(O, roi=roi)
+  ```
+  → fields `count`, `norm`, `reference`, `spread`. If this works, the file is in the shape moc
+  expects.
+- **Then compare to a model run**, once you have one exported from `moc_export_model.m`:
+  ```python
+  M = mp.load_model('nw_fric1.nc')
+  mp.plot_diff(mp.spatial_diff(M, O, roi, time=2019.6), roi=roi)
+  ```
+
 ## When you don't know the ROI
 
 Leave `center`/`dx_m` out and a Greenland overview map opens: the most recent **annual velocity
